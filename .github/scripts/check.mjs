@@ -1,3 +1,8 @@
+/**
+ * Takibat – GitHub Actions Kontrol Scripti
+ * .github/scripts/check.mjs
+ */
+
 import { readFileSync, writeFileSync, existsSync, appendFileSync, unlinkSync } from 'fs';
 import { createHash } from 'crypto';
 import { createTransport } from 'nodemailer';
@@ -64,7 +69,7 @@ function extractContent(html, cssSelector) {
 }
 
 async function sendEmail(monitor) {
-  const to = monitor.email || process.env.NOTIFY_EMAIL;
+  const to = process.env.NOTIFY_EMAIL || monitor.email;
   if (!to) return;
   const subject = `Takibat: Değişiklik Tespit Edildi – ${monitor.url}`;
   const trTime = new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
@@ -113,19 +118,92 @@ async function sendDiscordNotification(monitor) {
   }
 }
 
-async function callWebhook(monitor) {
-  if (!monitor.callbackurl) return;
+async function sendTelegramNotification(monitor) {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!botToken || !chatId) return;
+
+  const trTime = new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
+  const text = `🔔 *Takibat - Değişiklik Tespit Edildi* 🔔\n\n📌 *URL:* ${monitor.url}\n🎯 *Seçici:* ${monitor.cssselector || ':root'}\n🕒 *Zaman:* ${trTime}\n\n[Sayfayı aç](${monitor.url})`;
+
   try {
-    await fetch(monitor.callbackurl, {
+    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: monitor.url, cssSelector: monitor.cssselector, detectedAt: new Date().toISOString() })
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: text,
+        parse_mode: 'Markdown',
+        disable_web_page_preview: false
+      })
     });
-    console.log(`Webhook çağrıldı: ${monitor.callbackurl}`);
+    console.log(`Telegram bildirimi gönderildi: ${monitor.url}`);
   } catch (e) {
-    console.warn(`Webhook hatası: ${e.message}`);
+    console.warn('Telegram hatası:', e.message);
   }
 }
+
+async function sendPushbulletNotification(monitor) {
+  const accessToken = process.env.PUSHBULLET_ACCESS_TOKEN;
+  if (!accessToken) return;
+
+  const trTime = new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
+  const title = `Takibat - Değişiklik: ${monitor.url}`;
+  const body = `Seçici: ${monitor.cssselector || ':root'}\nZaman: ${trTime}`;
+
+  try {
+    await fetch('https://api.pushbullet.com/v2/pushes', {
+      method: 'POST',
+      headers: {
+        'Access-Token': accessToken,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        type: 'link',
+        title: title,
+        body: body,
+        url: monitor.url
+      })
+    });
+    console.log(`Pushbullet bildirimi gönderildi: ${monitor.url}`);
+  } catch (e) {
+    console.warn('Pushbullet hatası:', e.message);
+  }
+}
+
+async function sendGotifyNotification(monitor) {
+  const gotifyUrl = process.env.GOTIFY_URL;    // örn: https://gotify.example.com
+  const gotifyToken = process.env.GOTIFY_TOKEN;
+  if (!gotifyUrl || !gotifyToken) return;
+
+  const trTime = new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
+  const title = `Takibat: ${monitor.url}`;
+  const message = `Seçici: ${monitor.cssselector || ':root'}\nZaman: ${trTime}\n[Bağlantı](${monitor.url})`;
+
+  try {
+    await fetch(`${gotifyUrl}/message`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gotify-Key': gotifyToken
+      },
+      body: JSON.stringify({
+        title: title,
+        message: message,
+        priority: 5,
+        extras: {
+          'client::display': {
+            contentType: 'text/markdown'
+          }
+        }
+      })
+    });
+    console.log(`Gotify bildirimi gönderildi: ${monitor.url}`);
+  } catch (e) {
+    console.warn('Gotify hatası:', e.message);
+  }
+}
+
 
 let changed = false;
 
@@ -149,7 +227,21 @@ for (const monitor of monitors) {
     console.log(`  → ⚠️ Değişiklik tespit edildi!`);
     await sendEmail(monitor);
     await sendDiscordNotification(monitor);
+    await sendTelegramNotification(monitor);      // YENİ
+    await sendPushbulletNotification(monitor);    // YENİ
+    await sendGotifyNotification(monitor);        // YENİ
     await callWebhook(monitor);
+
+    if (monitor.callbackurl) {
+      try {
+        await fetch(monitor.callbackurl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: monitor.url, cssSelector: monitor.cssselector, detectedAt: new Date().toISOString() })
+        });
+        console.log(`  → Webhook çağrıldı: ${monitor.callbackurl}`);
+      } catch (e) { console.warn(`  → Webhook hatası: ${e.message}`); }
+    }
 
     const logLine = `📌 ${monitor.url}\n   Seçici: ${monitor.cssselector || ':root'}\n   Zaman: ${new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}\n\n`;
     appendFileSync(changesLogPath, logLine);
@@ -164,7 +256,7 @@ for (const monitor of monitors) {
 
 if (changed) {
   writeFileSync(hashesPath, JSON.stringify(hashes, null, 2), 'utf8');
-  console.log('hashes.json güncellendi.');
+  console.log('hashes.json güncellendi (sadece değişiklik veya ilk kontrol durumunda).');
 } else {
   console.log('Hiçbir değişiklik yok, hashes.json güncellenmedi.');
 }
