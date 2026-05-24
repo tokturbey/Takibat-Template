@@ -1,0 +1,22 @@
+name: Discord - Monitör Listesi Güncellendi
+
+on:
+  push:
+    paths:
+      - 'monitors.json'
+    paths-ignore:
+      - 'hashes.json'
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Discord bildirimi gönder
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -H "Content-Type: application/json" -X POST \
+            -d '{
+              "content": "📋 **Takibat** - Monitör listesi güncellendi\n👤 **Güncelleyen:** ${{ github.actor }}\n📦 **Repo:** ${{ github.repository }}\n💬 **Commit:** ${{ github.event.head_commit.message }}\n🔗 [Değişiklikleri incele](${{ github.event.head_commit.url }})"
+            }' \
+            $DISCORD_WEBHOOK_URL
