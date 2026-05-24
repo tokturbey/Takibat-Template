@@ -1,0 +1,43 @@
+name: Takibat - Sayfa Değişiklik Kontrolü
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Önceki bildirim dosyasını temizle
+        run: rm -f changed_urls.txt
+
+      - name: Repo'yu çek
+        uses: actions/checkout@v4
+
+      - name: Node.js kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Bağımlılıkları yükle
+        run: npm install node-fetch@3 nodemailer@6 jsdom@25
+
+      - name: Sayfa değişikliklerini kontrol et
+        env:
+          SMTP_HOST:     ${{ secrets.SMTP_HOST }}
+          SMTP_PORT:     ${{ secrets.SMTP_PORT }}
+          SMTP_USER:     ${{ secrets.SMTP_USER }}
+          SMTP_PASS:     ${{ secrets.SMTP_PASS }}
+          NOTIFY_EMAIL:  ${{ secrets.NOTIFY_EMAIL }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: node .github/scripts/check.mjs
+
+      - name: Hash dosyasını kaydet (sadece değişiklik varsa)
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: "Takibat: hash güncellendi"
+          file_pattern: hashes.json
